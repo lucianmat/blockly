@@ -1,123 +1,129 @@
 /**
  * @license
- * Visual Blocks Language
- *
- * Copyright 2012 Google Inc.
- * https://developers.google.com/blockly/
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2012 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
  * @fileoverview Generating Python for procedure blocks.
- * @author fraser@google.com (Neil Fraser)
  */
 'use strict';
 
-goog.provide('Blockly.Python.procedures');
+goog.module('Blockly.Python.procedures');
 
-goog.require('Blockly.Python');
+const Python = goog.require('Blockly.Python');
+const Variables = goog.require('Blockly.Variables');
+const {NameType} = goog.require('Blockly.Names');
 
 
-Blockly.Python['procedures_defreturn'] = function(block) {
+Python['procedures_defreturn'] = function(block) {
   // Define a procedure with a return value.
-  // First, add a 'global' statement for every variable that is assigned.
-  var globals = Blockly.Variables.allVariables(block);
-  for (var i = globals.length - 1; i >= 0; i--) {
-    var varName = globals[i];
-    if (block.arguments_.indexOf(varName) == -1) {
-      globals[i] = Blockly.Python.variableDB_.getName(varName,
-          Blockly.Variables.NAME_TYPE);
-    } else {
-      // This variable is actually a parameter name.  Do not include it in
-      // the list of globals, thus allowing it be of local scope.
-      globals.splice(i, 1);
+  // First, add a 'global' statement for every variable that is not shadowed by
+  // a local parameter.
+  const globals = [];
+  const workspace = block.workspace;
+  const usedVariables = Variables.allUsedVarModels(workspace) || [];
+  for (let i = 0, variable; (variable = usedVariables[i]); i++) {
+    const varName = variable.name;
+    if (block.getVars().indexOf(varName) === -1) {
+      globals.push(Python.nameDB_.getName(varName, NameType.VARIABLE));
     }
   }
-  globals = globals.length ? '  global ' + globals.join(', ') + '\n' : '';
-  var funcName = Blockly.Python.variableDB_.getName(block.getFieldValue('NAME'),
-      Blockly.Procedures.NAME_TYPE);
-  var branch = Blockly.Python.statementToCode(block, 'STACK');
-  if (Blockly.Python.STATEMENT_PREFIX) {
-    branch = Blockly.Python.prefixLines(
-        Blockly.Python.STATEMENT_PREFIX.replace(/%1/g,
-        '\'' + block.id + '\''), Blockly.Python.INDENT) + branch;
+  // Add developer variables.
+  const devVarList = Variables.allDeveloperVariables(workspace);
+  for (let i = 0; i < devVarList.length; i++) {
+    globals.push(
+        Python.nameDB_.getName(devVarList[i], NameType.DEVELOPER_VARIABLE));
   }
-  if (Blockly.Python.INFINITE_LOOP_TRAP) {
-    branch = Blockly.Python.INFINITE_LOOP_TRAP.replace(/%1/g,
-        '"' + block.id + '"') + branch;
+
+  const globalString = globals.length ?
+      Python.INDENT + 'global ' + globals.join(', ') + '\n' :
+      '';
+  const funcName =
+      Python.nameDB_.getName(block.getFieldValue('NAME'), NameType.PROCEDURE);
+  let xfix1 = '';
+  if (Python.STATEMENT_PREFIX) {
+    xfix1 += Python.injectId(Python.STATEMENT_PREFIX, block);
   }
-  var returnValue = Blockly.Python.valueToCode(block, 'RETURN',
-      Blockly.Python.ORDER_NONE) || '';
+  if (Python.STATEMENT_SUFFIX) {
+    xfix1 += Python.injectId(Python.STATEMENT_SUFFIX, block);
+  }
+  if (xfix1) {
+    xfix1 = Python.prefixLines(xfix1, Python.INDENT);
+  }
+  let loopTrap = '';
+  if (Python.INFINITE_LOOP_TRAP) {
+    loopTrap = Python.prefixLines(
+        Python.injectId(Python.INFINITE_LOOP_TRAP, block), Python.INDENT);
+  }
+  let branch = Python.statementToCode(block, 'STACK');
+  let returnValue =
+      Python.valueToCode(block, 'RETURN', Python.ORDER_NONE) || '';
+  let xfix2 = '';
+  if (branch && returnValue) {
+    // After executing the function body, revisit this block for the return.
+    xfix2 = xfix1;
+  }
   if (returnValue) {
-    returnValue = '  return ' + returnValue + '\n';
+    returnValue = Python.INDENT + 'return ' + returnValue + '\n';
   } else if (!branch) {
-    branch = Blockly.Python.PASS;
+    branch = Python.PASS;
   }
-  var args = [];
-  for (var x = 0; x < block.arguments_.length; x++) {
-    args[x] = Blockly.Python.variableDB_.getName(block.arguments_[x],
-        Blockly.Variables.NAME_TYPE);
+  const args = [];
+  const variables = block.getVars();
+  for (let i = 0; i < variables.length; i++) {
+    args[i] = Python.nameDB_.getName(variables[i], NameType.VARIABLE);
   }
-  var code = 'def ' + funcName + '(' + args.join(', ') + '):\n' +
-      globals + branch + returnValue;
-  code = Blockly.Python.scrub_(block, code);
-  Blockly.Python.definitions_[funcName] = code;
+  let code = 'def ' + funcName + '(' + args.join(', ') + '):\n' + globalString +
+      xfix1 + loopTrap + branch + xfix2 + returnValue;
+  code = Python.scrub_(block, code);
+  // Add % so as not to collide with helper functions in definitions list.
+  Python.definitions_['%' + funcName] = code;
   return null;
 };
 
 // Defining a procedure without a return value uses the same generator as
 // a procedure with a return value.
-Blockly.Python['procedures_defnoreturn'] =
-    Blockly.Python['procedures_defreturn'];
+Python['procedures_defnoreturn'] = Python['procedures_defreturn'];
 
-Blockly.Python['procedures_callreturn'] = function(block) {
+Python['procedures_callreturn'] = function(block) {
   // Call a procedure with a return value.
-  var funcName = Blockly.Python.variableDB_.getName(block.getFieldValue('NAME'),
-      Blockly.Procedures.NAME_TYPE);
-  var args = [];
-  for (var x = 0; x < block.arguments_.length; x++) {
-    args[x] = Blockly.Python.valueToCode(block, 'ARG' + x,
-        Blockly.Python.ORDER_NONE) || 'None';
+  const funcName =
+      Python.nameDB_.getName(block.getFieldValue('NAME'), NameType.PROCEDURE);
+  const args = [];
+  const variables = block.getVars();
+  for (let i = 0; i < variables.length; i++) {
+    args[i] = Python.valueToCode(block, 'ARG' + i, Python.ORDER_NONE) || 'None';
   }
-  var code = funcName + '(' + args.join(', ') + ')';
-  return [code, Blockly.Python.ORDER_FUNCTION_CALL];
+  const code = funcName + '(' + args.join(', ') + ')';
+  return [code, Python.ORDER_FUNCTION_CALL];
 };
 
-Blockly.Python['procedures_callnoreturn'] = function(block) {
+Python['procedures_callnoreturn'] = function(block) {
   // Call a procedure with no return value.
-  var funcName = Blockly.Python.variableDB_.getName(block.getFieldValue('NAME'),
-      Blockly.Procedures.NAME_TYPE);
-  var args = [];
-  for (var x = 0; x < block.arguments_.length; x++) {
-    args[x] = Blockly.Python.valueToCode(block, 'ARG' + x,
-        Blockly.Python.ORDER_NONE) || 'None';
-  }
-  var code = funcName + '(' + args.join(', ') + ')\n';
-  return code;
+  // Generated code is for a function call as a statement is the same as a
+  // function call as a value, with the addition of line ending.
+  const tuple = Python['procedures_callreturn'](block);
+  return tuple[0] + '\n';
 };
 
-Blockly.Python['procedures_ifreturn'] = function(block) {
+Python['procedures_ifreturn'] = function(block) {
   // Conditionally return value from a procedure.
-  var condition = Blockly.Python.valueToCode(block, 'CONDITION',
-      Blockly.Python.ORDER_NONE) || 'False';
-  var code = 'if ' + condition + ':\n';
+  const condition =
+      Python.valueToCode(block, 'CONDITION', Python.ORDER_NONE) || 'False';
+  let code = 'if ' + condition + ':\n';
+  if (Python.STATEMENT_SUFFIX) {
+    // Inject any statement suffix here since the regular one at the end
+    // will not get executed if the return is triggered.
+    code += Python.prefixLines(
+        Python.injectId(Python.STATEMENT_SUFFIX, block), Python.INDENT);
+  }
   if (block.hasReturnValue_) {
-    var value = Blockly.Python.valueToCode(block, 'VALUE',
-        Blockly.Python.ORDER_NONE) || 'None';
-    code += '  return ' + value + '\n';
+    const value =
+        Python.valueToCode(block, 'VALUE', Python.ORDER_NONE) || 'None';
+    code += Python.INDENT + 'return ' + value + '\n';
   } else {
-    code += '  return\n';
+    code += Python.INDENT + 'return\n';
   }
   return code;
 };

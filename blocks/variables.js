@@ -1,140 +1,174 @@
 /**
  * @license
- * Visual Blocks Editor
- *
- * Copyright 2012 Google Inc.
- * https://developers.google.com/blockly/
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2012 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
  * @fileoverview Variable blocks for Blockly.
- * @author fraser@google.com (Neil Fraser)
+ * @suppress {checkTypes}
  */
 'use strict';
 
-goog.provide('Blockly.Blocks.variables');
+goog.module('Blockly.libraryBlocks.variables');
 
-goog.require('Blockly.Blocks');
+const ContextMenu = goog.require('Blockly.ContextMenu');
+const Extensions = goog.require('Blockly.Extensions');
+const Variables = goog.require('Blockly.Variables');
+const xmlUtils = goog.require('Blockly.utils.xml');
+/* eslint-disable-next-line no-unused-vars */
+const {Block} = goog.requireType('Blockly.Block');
+/* eslint-disable-next-line no-unused-vars */
+const {BlockDefinition} = goog.requireType('Blockly.blocks');
+const {Msg} = goog.require('Blockly.Msg');
+const {createBlockDefinitionsFromJsonArray, defineBlocks} = goog.require('Blockly.common');
+/** @suppress {extraRequire} */
+goog.require('Blockly.FieldLabel');
+/** @suppress {extraRequire} */
+goog.require('Blockly.FieldVariable');
 
 
 /**
- * Common HSV hue for all blocks in this category.
+ * A dictionary of the block definitions provided by this module.
+ * @type {!Object<string, !BlockDefinition>}
  */
-Blockly.Blocks.variables.HUE = 330;
+const blocks = createBlockDefinitionsFromJsonArray([
+  // Block for variable getter.
+  {
+    'type': 'variables_get',
+    'message0': '%1',
+    'args0': [
+      {
+        'type': 'field_variable',
+        'name': 'VAR',
+        'variable': '%{BKY_VARIABLES_DEFAULT_NAME}',
+      },
+    ],
+    'output': null,
+    'style': 'variable_blocks',
+    'helpUrl': '%{BKY_VARIABLES_GET_HELPURL}',
+    'tooltip': '%{BKY_VARIABLES_GET_TOOLTIP}',
+    'extensions': ['contextMenu_variableSetterGetter'],
+  },
+  // Block for variable setter.
+  {
+    'type': 'variables_set',
+    'message0': '%{BKY_VARIABLES_SET}',
+    'args0': [
+      {
+        'type': 'field_variable',
+        'name': 'VAR',
+        'variable': '%{BKY_VARIABLES_DEFAULT_NAME}',
+      },
+      {
+        'type': 'input_value',
+        'name': 'VALUE',
+      },
+    ],
+    'previousStatement': null,
+    'nextStatement': null,
+    'style': 'variable_blocks',
+    'tooltip': '%{BKY_VARIABLES_SET_TOOLTIP}',
+    'helpUrl': '%{BKY_VARIABLES_SET_HELPURL}',
+    'extensions': ['contextMenu_variableSetterGetter'],
+  },
+]);
+exports.blocks = blocks;
 
-Blockly.Blocks['variables_get'] = {
-  /**
-   * Block for variable getter.
-   * @this Blockly.Block
-   */
-  init: function() {
-    this.setHelpUrl(Blockly.Msg.VARIABLES_GET_HELPURL);
-    this.setColour(Blockly.Blocks.variables.HUE);
-    this.appendDummyInput()
-        .appendField(new Blockly.FieldVariable(
-        Blockly.Msg.VARIABLES_DEFAULT_NAME), 'VAR');
-    this.setOutput(true);
-    this.setTooltip(Blockly.Msg.VARIABLES_GET_TOOLTIP);
-    this.contextMenuMsg_ = Blockly.Msg.VARIABLES_GET_CREATE_SET;
-  },
-  /**
-   * Return all variables referenced by this block.
-   * @return {!Array.<string>} List of variable names.
-   * @this Blockly.Block
-   */
-  getVars: function() {
-    return [this.getFieldValue('VAR')];
-  },
-  /**
-   * Notification that a variable is renaming.
-   * If the name matches one of this block's variables, rename it.
-   * @param {string} oldName Previous name of variable.
-   * @param {string} newName Renamed variable.
-   * @this Blockly.Block
-   */
-  renameVar: function(oldName, newName) {
-    if (Blockly.Names.equals(oldName, this.getFieldValue('VAR'))) {
-      this.setFieldValue(newName, 'VAR');
-    }
-  },
-  contextMenuType_: 'variables_set',
+
+/**
+ * Mixin to add context menu items to create getter/setter blocks for this
+ * setter/getter.
+ * Used by blocks 'variables_set' and 'variables_get'.
+ * @mixin
+ * @augments Block
+ * @package
+ * @readonly
+ */
+const CUSTOM_CONTEXT_MENU_VARIABLE_GETTER_SETTER_MIXIN = {
   /**
    * Add menu option to create getter/setter block for this setter/getter.
    * @param {!Array} options List of menu options to add to.
-   * @this Blockly.Block
+   * @this {Block}
    */
   customContextMenu: function(options) {
-    var option = {enabled: true};
-    var name = this.getFieldValue('VAR');
-    option.text = this.contextMenuMsg_.replace('%1', name);
-    var xmlField = goog.dom.createDom('field', null, name);
-    xmlField.setAttribute('name', 'VAR');
-    var xmlBlock = goog.dom.createDom('block', null, xmlField);
-    xmlBlock.setAttribute('type', this.contextMenuType_);
-    option.callback = Blockly.ContextMenu.callbackFactory(this, xmlBlock);
-    options.push(option);
-  }
-};
+    if (!this.isInFlyout) {
+      let oppositeType;
+      let contextMenuMsg;
+      // Getter blocks have the option to create a setter block, and vice versa.
+      if (this.type === 'variables_get') {
+        oppositeType = 'variables_set';
+        contextMenuMsg = Msg['VARIABLES_GET_CREATE_SET'];
+      } else {
+        oppositeType = 'variables_get';
+        contextMenuMsg = Msg['VARIABLES_SET_CREATE_GET'];
+      }
 
-Blockly.Blocks['variables_set'] = {
-  /**
-   * Block for variable setter.
-   * @this Blockly.Block
-   */
-  init: function() {
-    this.jsonInit({
-      "message0": Blockly.Msg.VARIABLES_SET,
-      "args0": [
-        {
-          "type": "field_variable",
-          "name": "VAR",
-          "variable": Blockly.Msg.VARIABLES_DEFAULT_NAME
-        },
-        {
-          "type": "input_value",
-          "name": "VALUE"
-        }
-      ],
-      "previousStatement": null,
-      "nextStatement": null,
-      "colour": Blockly.Blocks.variables.HUE,
-      "tooltip": Blockly.Msg.VARIABLES_SET_TOOLTIP,
-      "helpUrl": Blockly.Msg.VARIABLES_SET_HELPURL
-    });
-    this.contextMenuMsg_ = Blockly.Msg.VARIABLES_SET_CREATE_GET;
-  },
-  /**
-   * Return all variables referenced by this block.
-   * @return {!Array.<string>} List of variable names.
-   * @this Blockly.Block
-   */
-  getVars: function() {
-    return [this.getFieldValue('VAR')];
-  },
-  /**
-   * Notification that a variable is renaming.
-   * If the name matches one of this block's variables, rename it.
-   * @param {string} oldName Previous name of variable.
-   * @param {string} newName Renamed variable.
-   * @this Blockly.Block
-   */
-  renameVar: function(oldName, newName) {
-    if (Blockly.Names.equals(oldName, this.getFieldValue('VAR'))) {
-      this.setFieldValue(newName, 'VAR');
+      const option = {enabled: this.workspace.remainingCapacity() > 0};
+      const name = this.getField('VAR').getText();
+      option.text = contextMenuMsg.replace('%1', name);
+      const xmlField = xmlUtils.createElement('field');
+      xmlField.setAttribute('name', 'VAR');
+      xmlField.appendChild(xmlUtils.createTextNode(name));
+      const xmlBlock = xmlUtils.createElement('block');
+      xmlBlock.setAttribute('type', oppositeType);
+      xmlBlock.appendChild(xmlField);
+      option.callback = ContextMenu.callbackFactory(this, xmlBlock);
+      options.push(option);
+      // Getter blocks have the option to rename or delete that variable.
+    } else {
+      if (this.type === 'variables_get' ||
+          this.type === 'variables_get_reporter') {
+        const renameOption = {
+          text: Msg['RENAME_VARIABLE'],
+          enabled: true,
+          callback: renameOptionCallbackFactory(this),
+        };
+        const name = this.getField('VAR').getText();
+        const deleteOption = {
+          text: Msg['DELETE_VARIABLE'].replace('%1', name),
+          enabled: true,
+          callback: deleteOptionCallbackFactory(this),
+        };
+        options.unshift(renameOption);
+        options.unshift(deleteOption);
+      }
     }
   },
-  contextMenuType_: 'variables_get',
-  customContextMenu: Blockly.Blocks['variables_get'].customContextMenu
 };
+
+/**
+ * Factory for callbacks for rename variable dropdown menu option
+ * associated with a variable getter block.
+ * @param {!Block} block The block with the variable to rename.
+ * @return {!function()} A function that renames the variable.
+ */
+const renameOptionCallbackFactory = function(block) {
+  return function() {
+    const workspace = block.workspace;
+    const variable = block.getField('VAR').getVariable();
+    Variables.renameVariable(workspace, variable);
+  };
+};
+
+/**
+ * Factory for callbacks for delete variable dropdown menu option
+ * associated with a variable getter block.
+ * @param {!Block} block The block with the variable to delete.
+ * @return {!function()} A function that deletes the variable.
+ */
+const deleteOptionCallbackFactory = function(block) {
+  return function() {
+    const workspace = block.workspace;
+    const variable = block.getField('VAR').getVariable();
+    workspace.deleteVariableById(variable.getId());
+    workspace.refreshToolboxSelection();
+  };
+};
+
+Extensions.registerMixin(
+    'contextMenu_variableSetterGetter',
+    CUSTOM_CONTEXT_MENU_VARIABLE_GETTER_SETTER_MIXIN);
+
+// Register provided blocks.
+defineBlocks(blocks);

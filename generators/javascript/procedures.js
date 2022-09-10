@@ -1,107 +1,109 @@
 /**
  * @license
- * Visual Blocks Language
- *
- * Copyright 2012 Google Inc.
- * https://developers.google.com/blockly/
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2012 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
  * @fileoverview Generating JavaScript for procedure blocks.
- * @author fraser@google.com (Neil Fraser)
  */
 'use strict';
 
-goog.provide('Blockly.JavaScript.procedures');
+goog.module('Blockly.JavaScript.procedures');
 
-goog.require('Blockly.JavaScript');
+const JavaScript = goog.require('Blockly.JavaScript');
+const {NameType} = goog.require('Blockly.Names');
 
 
-Blockly.JavaScript['procedures_defreturn'] = function(block) {
+JavaScript['procedures_defreturn'] = function(block) {
   // Define a procedure with a return value.
-  var funcName = Blockly.JavaScript.variableDB_.getName(
-      block.getFieldValue('NAME'), Blockly.Procedures.NAME_TYPE);
-  var branch = Blockly.JavaScript.statementToCode(block, 'STACK');
-  if (Blockly.JavaScript.STATEMENT_PREFIX) {
-    branch = Blockly.JavaScript.prefixLines(
-        Blockly.JavaScript.STATEMENT_PREFIX.replace(/%1/g,
-        '\'' + block.id + '\''), Blockly.JavaScript.INDENT) + branch;
+  const funcName = JavaScript.nameDB_.getName(
+      block.getFieldValue('NAME'), NameType.PROCEDURE);
+  let xfix1 = '';
+  if (JavaScript.STATEMENT_PREFIX) {
+    xfix1 += JavaScript.injectId(JavaScript.STATEMENT_PREFIX, block);
   }
-  if (Blockly.JavaScript.INFINITE_LOOP_TRAP) {
-    branch = Blockly.JavaScript.INFINITE_LOOP_TRAP.replace(/%1/g,
-        '\'' + block.id + '\'') + branch;
+  if (JavaScript.STATEMENT_SUFFIX) {
+    xfix1 += JavaScript.injectId(JavaScript.STATEMENT_SUFFIX, block);
   }
-  var returnValue = Blockly.JavaScript.valueToCode(block, 'RETURN',
-      Blockly.JavaScript.ORDER_NONE) || '';
+  if (xfix1) {
+    xfix1 = JavaScript.prefixLines(xfix1, JavaScript.INDENT);
+  }
+  let loopTrap = '';
+  if (JavaScript.INFINITE_LOOP_TRAP) {
+    loopTrap = JavaScript.prefixLines(
+        JavaScript.injectId(JavaScript.INFINITE_LOOP_TRAP, block),
+        JavaScript.INDENT);
+  }
+  const branch = JavaScript.statementToCode(block, 'STACK');
+  let returnValue =
+      JavaScript.valueToCode(block, 'RETURN', JavaScript.ORDER_NONE) || '';
+  let xfix2 = '';
+  if (branch && returnValue) {
+    // After executing the function body, revisit this block for the return.
+    xfix2 = xfix1;
+  }
   if (returnValue) {
-    returnValue = '  return ' + returnValue + ';\n';
+    returnValue = JavaScript.INDENT + 'return ' + returnValue + ';\n';
   }
-  var args = [];
-  for (var x = 0; x < block.arguments_.length; x++) {
-    args[x] = Blockly.JavaScript.variableDB_.getName(block.arguments_[x],
-        Blockly.Variables.NAME_TYPE);
+  const args = [];
+  const variables = block.getVars();
+  for (let i = 0; i < variables.length; i++) {
+    args[i] = JavaScript.nameDB_.getName(variables[i], NameType.VARIABLE);
   }
-  var code = 'function ' + funcName + '(' + args.join(', ') + ') {\n' +
-      branch + returnValue + '}';
-  code = Blockly.JavaScript.scrub_(block, code);
-  Blockly.JavaScript.definitions_[funcName] = code;
+  let code = 'function ' + funcName + '(' + args.join(', ') + ') {\n' + xfix1 +
+      loopTrap + branch + xfix2 + returnValue + '}';
+  code = JavaScript.scrub_(block, code);
+  // Add % so as not to collide with helper functions in definitions list.
+  JavaScript.definitions_['%' + funcName] = code;
   return null;
 };
 
 // Defining a procedure without a return value uses the same generator as
 // a procedure with a return value.
-Blockly.JavaScript['procedures_defnoreturn'] =
-    Blockly.JavaScript['procedures_defreturn'];
+JavaScript['procedures_defnoreturn'] = JavaScript['procedures_defreturn'];
 
-Blockly.JavaScript['procedures_callreturn'] = function(block) {
+JavaScript['procedures_callreturn'] = function(block) {
   // Call a procedure with a return value.
-  var funcName = Blockly.JavaScript.variableDB_.getName(
-      block.getFieldValue('NAME'), Blockly.Procedures.NAME_TYPE);
-  var args = [];
-  for (var x = 0; x < block.arguments_.length; x++) {
-    args[x] = Blockly.JavaScript.valueToCode(block, 'ARG' + x,
-        Blockly.JavaScript.ORDER_COMMA) || 'null';
+  const funcName = JavaScript.nameDB_.getName(
+      block.getFieldValue('NAME'), NameType.PROCEDURE);
+  const args = [];
+  const variables = block.getVars();
+  for (let i = 0; i < variables.length; i++) {
+    args[i] = JavaScript.valueToCode(block, 'ARG' + i, JavaScript.ORDER_NONE) ||
+        'null';
   }
-  var code = funcName + '(' + args.join(', ') + ')';
-  return [code, Blockly.JavaScript.ORDER_FUNCTION_CALL];
+  const code = funcName + '(' + args.join(', ') + ')';
+  return [code, JavaScript.ORDER_FUNCTION_CALL];
 };
 
-Blockly.JavaScript['procedures_callnoreturn'] = function(block) {
+JavaScript['procedures_callnoreturn'] = function(block) {
   // Call a procedure with no return value.
-  var funcName = Blockly.JavaScript.variableDB_.getName(
-      block.getFieldValue('NAME'), Blockly.Procedures.NAME_TYPE);
-  var args = [];
-  for (var x = 0; x < block.arguments_.length; x++) {
-    args[x] = Blockly.JavaScript.valueToCode(block, 'ARG' + x,
-        Blockly.JavaScript.ORDER_COMMA) || 'null';
-  }
-  var code = funcName + '(' + args.join(', ') + ');\n';
-  return code;
+  // Generated code is for a function call as a statement is the same as a
+  // function call as a value, with the addition of line ending.
+  const tuple = JavaScript['procedures_callreturn'](block);
+  return tuple[0] + ';\n';
 };
 
-Blockly.JavaScript['procedures_ifreturn'] = function(block) {
+JavaScript['procedures_ifreturn'] = function(block) {
   // Conditionally return value from a procedure.
-  var condition = Blockly.JavaScript.valueToCode(block, 'CONDITION',
-      Blockly.JavaScript.ORDER_NONE) || 'false';
-  var code = 'if (' + condition + ') {\n';
+  const condition =
+      JavaScript.valueToCode(block, 'CONDITION', JavaScript.ORDER_NONE) ||
+      'false';
+  let code = 'if (' + condition + ') {\n';
+  if (JavaScript.STATEMENT_SUFFIX) {
+    // Inject any statement suffix here since the regular one at the end
+    // will not get executed if the return is triggered.
+    code += JavaScript.prefixLines(
+        JavaScript.injectId(JavaScript.STATEMENT_SUFFIX, block),
+        JavaScript.INDENT);
+  }
   if (block.hasReturnValue_) {
-    var value = Blockly.JavaScript.valueToCode(block, 'VALUE',
-        Blockly.JavaScript.ORDER_NONE) || 'null';
-    code += '  return ' + value + ';\n';
+    const value =
+        JavaScript.valueToCode(block, 'VALUE', JavaScript.ORDER_NONE) || 'null';
+    code += JavaScript.INDENT + 'return ' + value + ';\n';
   } else {
-    code += '  return;\n';
+    code += JavaScript.INDENT + 'return;\n';
   }
   code += '}\n';
   return code;

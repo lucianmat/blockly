@@ -1,112 +1,255 @@
 /**
  * @license
- * Visual Blocks Editor
- *
- * Copyright 2012 Google Inc.
- * https://developers.google.com/blockly/
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2012 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
  * @fileoverview Checkbox field.  Checked or not checked.
- * @author fraser@google.com (Neil Fraser)
  */
 'use strict';
 
-goog.provide('Blockly.FieldCheckbox');
+/**
+ * Checkbox field.  Checked or not checked.
+ * @class
+ */
+goog.module('Blockly.FieldCheckbox');
 
-goog.require('Blockly.Field');
+const dom = goog.require('Blockly.utils.dom');
+const fieldRegistry = goog.require('Blockly.fieldRegistry');
+const {Field} = goog.require('Blockly.Field');
+/* eslint-disable-next-line no-unused-vars */
+const {Sentinel} = goog.requireType('Blockly.utils.Sentinel');
+/** @suppress {extraRequire} */
+goog.require('Blockly.Events.BlockChange');
 
 
 /**
  * Class for a checkbox field.
- * @param {string} state The initial state of the field ('TRUE' or 'FALSE').
- * @param {Function=} opt_validator A function that is executed when a new
- *     option is selected.  Its sole argument is the new checkbox state.  If
- *     it returns a value, this becomes the new checkbox state, unless the
- *     value is null, in which case the change is aborted.
- * @extends {Blockly.Field}
- * @constructor
+ * @extends {Field}
+ * @alias Blockly.FieldCheckbox
  */
-Blockly.FieldCheckbox = function(state, opt_validator) {
-  Blockly.FieldCheckbox.superClass_.constructor.call(this, '', opt_validator);
-  // Set the initial state.
-  this.setValue(state);
-};
-goog.inherits(Blockly.FieldCheckbox, Blockly.Field);
+class FieldCheckbox extends Field {
+  /**
+   * @param {(string|boolean|!Sentinel)=} opt_value The initial value of
+   *     the field. Should either be 'TRUE', 'FALSE' or a boolean. Defaults to
+   *     'FALSE'.
+   *     Also accepts Field.SKIP_SETUP if you wish to skip setup (only used by
+   *     subclasses that want to handle configuration and setting the field
+   *     value after their own constructors have run).
+   * @param {Function=} opt_validator  A function that is called to validate
+   *     changes to the field's value. Takes in a value ('TRUE' or 'FALSE') &
+   *     returns a validated value ('TRUE' or 'FALSE'), or null to abort the
+   *     change.
+   * @param {Object=} opt_config A map of options used to configure the field.
+   *     See the [field creation documentation]{@link
+   *     https://developers.google.com/blockly/guides/create-custom-blocks/fields/built-in-fields/checkbox#creation}
+   *     for a list of properties this parameter supports.
+   */
+  constructor(opt_value, opt_validator, opt_config) {
+    super(Field.SKIP_SETUP);
 
-/**
- * Mouse cursor style when over the hotspot that initiates editability.
- */
-Blockly.FieldCheckbox.prototype.CURSOR = 'default';
+    /**
+     * Character for the check mark. Used to apply a different check mark
+     * character to individual fields.
+     * @type {string}
+     * @private
+     */
+    this.checkChar_ = FieldCheckbox.CHECK_CHAR;
 
-/**
- * Install this checkbox on a block.
- * @param {!Blockly.Block} block The block containing this text.
- */
-Blockly.FieldCheckbox.prototype.init = function(block) {
-  if (this.sourceBlock_) {
-    // Checkbox has already been initialized once.
-    return;
+    /**
+     * Serializable fields are saved by the serializer, non-serializable fields
+     * are not. Editable fields should also be serializable.
+     * @type {boolean}
+     */
+    this.SERIALIZABLE = true;
+
+    /**
+     * Mouse cursor style when over the hotspot that initiates editability.
+     * @type {string}
+     */
+    this.CURSOR = 'default';
+
+    if (opt_value === Field.SKIP_SETUP) return;
+    if (opt_config) this.configure_(opt_config);
+    this.setValue(opt_value);
+    if (opt_validator) this.setValidator(opt_validator);
   }
-  Blockly.FieldCheckbox.superClass_.init.call(this, block);
-  // The checkbox doesn't use the inherited text element.
-  // Instead it uses a custom checkmark element that is either visible or not.
-  this.checkElement_ = Blockly.createSvgElement('text',
-      {'class': 'blocklyText', 'x': -3, 'y': 14}, this.fieldGroup_);
-  var textNode = document.createTextNode('\u2713');
-  this.checkElement_.appendChild(textNode);
-  this.checkElement_.style.display = this.state_ ? 'block' : 'none';
-};
 
-/**
- * Return 'TRUE' if the checkbox is checked, 'FALSE' otherwise.
- * @return {string} Current state.
- */
-Blockly.FieldCheckbox.prototype.getValue = function() {
-  return String(this.state_).toUpperCase();
-};
-
-/**
- * Set the checkbox to be checked if strBool is 'TRUE', unchecks otherwise.
- * @param {string} strBool New state.
- */
-Blockly.FieldCheckbox.prototype.setValue = function(strBool) {
-  var newState = (strBool == 'TRUE');
-  if (this.state_ !== newState) {
-    this.state_ = newState;
-    if (this.checkElement_) {
-      this.checkElement_.style.display = newState ? 'block' : 'none';
+  /**
+   * Configure the field based on the given map of options.
+   * @param {!Object} config A map of options to configure the field based on.
+   * @protected
+   * @override
+   */
+  configure_(config) {
+    super.configure_(config);
+    if (config['checkCharacter']) {
+      this.checkChar_ = config['checkCharacter'];
     }
   }
-};
 
-/**
- * Toggle the state of the checkbox.
- * @private
- */
-Blockly.FieldCheckbox.prototype.showEditor_ = function() {
-  var newState = !this.state_;
-  if (this.sourceBlock_ && this.validator_) {
-    // Call any validation function, and allow it to override.
-    var override = this.validator_(newState);
-    if (override !== undefined) {
-      newState = override;
+  /**
+   * Saves this field's value.
+   * @return {*} The boolean value held by this field.
+   * @override
+   * @package
+   */
+  saveState() {
+    const legacyState = this.saveLegacyState(FieldCheckbox);
+    if (legacyState !== null) {
+      return legacyState;
+    }
+    return this.getValueBoolean();
+  }
+
+  /**
+   * Create the block UI for this checkbox.
+   * @package
+   */
+  initView() {
+    super.initView();
+
+    dom.addClass(
+        /** @type {!SVGTextElement} **/ (this.textElement_), 'blocklyCheckbox');
+    this.textElement_.style.display = this.value_ ? 'block' : 'none';
+  }
+
+  /**
+   * @override
+   */
+  render_() {
+    if (this.textContent_) {
+      this.textContent_.nodeValue = this.getDisplayText_();
+    }
+    this.updateSize_(this.getConstants().FIELD_CHECKBOX_X_OFFSET);
+  }
+
+  /**
+   * @override
+   */
+  getDisplayText_() {
+    return this.checkChar_;
+  }
+
+  /**
+   * Set the character used for the check mark.
+   * @param {?string} character The character to use for the check mark, or
+   *    null to use the default.
+   */
+  setCheckCharacter(character) {
+    this.checkChar_ = character || FieldCheckbox.CHECK_CHAR;
+    this.forceRerender();
+  }
+
+  /**
+   * Toggle the state of the checkbox on click.
+   * @protected
+   */
+  showEditor_() {
+    this.setValue(!this.value_);
+  }
+
+  /**
+   * Ensure that the input value is valid ('TRUE' or 'FALSE').
+   * @param {*=} opt_newValue The input value.
+   * @return {?string} A valid value ('TRUE' or 'FALSE), or null if invalid.
+   * @protected
+   */
+  doClassValidation_(opt_newValue) {
+    if (opt_newValue === true || opt_newValue === 'TRUE') {
+      return 'TRUE';
+    }
+    if (opt_newValue === false || opt_newValue === 'FALSE') {
+      return 'FALSE';
+    }
+    return null;
+  }
+
+  /**
+   * Update the value of the field, and update the checkElement.
+   * @param {*} newValue The value to be saved. The default validator guarantees
+   * that this is a either 'TRUE' or 'FALSE'.
+   * @protected
+   */
+  doValueUpdate_(newValue) {
+    this.value_ = this.convertValueToBool_(newValue);
+    // Update visual.
+    if (this.textElement_) {
+      this.textElement_.style.display = this.value_ ? 'block' : 'none';
     }
   }
-  if (newState !== null) {
-    this.sourceBlock_.setShadow(false);
-    this.setValue(String(newState).toUpperCase());
+
+  /**
+   * Get the value of this field, either 'TRUE' or 'FALSE'.
+   * @return {string} The value of this field.
+   */
+  getValue() {
+    return this.value_ ? 'TRUE' : 'FALSE';
   }
-};
+
+  /**
+   * Get the boolean value of this field.
+   * @return {boolean} The boolean value of this field.
+   */
+  getValueBoolean() {
+    return /** @type {boolean} */ (this.value_);
+  }
+
+  /**
+   * Get the text of this field. Used when the block is collapsed.
+   * @return {string} Text representing the value of this field
+   *    ('true' or 'false').
+   */
+  getText() {
+    return String(this.convertValueToBool_(this.value_));
+  }
+
+  /**
+   * Convert a value into a pure boolean.
+   *
+   * Converts 'TRUE' to true and 'FALSE' to false correctly, everything else
+   * is cast to a boolean.
+   * @param {*} value The value to convert.
+   * @return {boolean} The converted value.
+   * @private
+   */
+  convertValueToBool_(value) {
+    if (typeof value === 'string') {
+      return value === 'TRUE';
+    } else {
+      return !!value;
+    }
+  }
+
+  /**
+   * Construct a FieldCheckbox from a JSON arg object.
+   * @param {!Object} options A JSON object with options (checked).
+   * @return {!FieldCheckbox} The new field instance.
+   * @package
+   * @nocollapse
+   */
+  static fromJson(options) {
+    // `this` might be a subclass of FieldCheckbox if that class doesn't
+    // 'override' the static fromJson method.
+    return new this(options['checked'], undefined, options);
+  }
+}
+
+/**
+ * The default value for this field.
+ * @type {*}
+ * @protected
+ */
+FieldCheckbox.prototype.DEFAULT_VALUE = false;
+
+/**
+ * Default character for the checkmark.
+ * @type {string}
+ * @const
+ */
+FieldCheckbox.CHECK_CHAR = '\u2713';
+
+fieldRegistry.register('field_checkbox', FieldCheckbox);
+
+exports.FieldCheckbox = FieldCheckbox;

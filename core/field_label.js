@@ -1,107 +1,149 @@
 /**
  * @license
- * Visual Blocks Editor
- *
- * Copyright 2012 Google Inc.
- * https://developers.google.com/blockly/
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2012 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
- * @fileoverview Non-editable text field.  Used for titles, labels, etc.
- * @author fraser@google.com (Neil Fraser)
+ * @fileoverview Non-editable, non-serializable text field.  Used for titles,
+ *    labels, etc.
  */
 'use strict';
 
-goog.provide('Blockly.FieldLabel');
+/**
+ * Non-editable, non-serializable text field.  Used for titles,
+ *    labels, etc.
+ * @class
+ */
+goog.module('Blockly.FieldLabel');
 
-goog.require('Blockly.Field');
-goog.require('Blockly.Tooltip');
-goog.require('goog.dom');
-goog.require('goog.math.Size');
+const dom = goog.require('Blockly.utils.dom');
+const fieldRegistry = goog.require('Blockly.fieldRegistry');
+const parsing = goog.require('Blockly.utils.parsing');
+const {Field} = goog.require('Blockly.Field');
+/* eslint-disable-next-line no-unused-vars */
+const {Sentinel} = goog.requireType('Blockly.utils.Sentinel');
 
 
 /**
- * Class for a non-editable field.
- * @param {string} text The initial content of the field.
- * @param {string=} opt_class Optional CSS class for the field's text.
- * @extends {Blockly.Field}
- * @constructor
+ * Class for a non-editable, non-serializable text field.
+ * @extends {Field}
+ * @alias Blockly.FieldLabel
  */
-Blockly.FieldLabel = function(text, opt_class) {
-  this.size_ = new goog.math.Size(0, 17.5);
-  this.class_ = opt_class;
-  this.setValue(text);
-};
-goog.inherits(Blockly.FieldLabel, Blockly.Field);
+class FieldLabel extends Field {
+  /**
+   * @param {(string|!Sentinel)=} opt_value The initial value of the
+   *     field. Should cast to a string. Defaults to an empty string if null or
+   *     undefined.
+   *     Also accepts Field.SKIP_SETUP if you wish to skip setup (only used by
+   *     subclasses that want to handle configuration and setting the field
+   *     value after their own constructors have run).
+   * @param {string=} opt_class Optional CSS class for the field's text.
+   * @param {Object=} opt_config A map of options used to configure the field.
+   *    See the [field creation documentation]{@link
+   * https://developers.google.com/blockly/guides/create-custom-blocks/fields/built-in-fields/label#creation}
+   *    for a list of properties this parameter supports.
+   */
+  constructor(opt_value, opt_class, opt_config) {
+    super(Field.SKIP_SETUP);
 
-/**
- * Editable fields are saved by the XML renderer, non-editable fields are not.
- */
-Blockly.FieldLabel.prototype.EDITABLE = false;
+    /**
+     * The html class name to use for this field.
+     * @type {?string}
+     * @private
+     */
+    this.class_ = null;
 
-/**
- * Install this text on a block.
- * @param {!Blockly.Block} block The block containing this text.
- */
-Blockly.FieldLabel.prototype.init = function(block) {
-  if (this.sourceBlock_) {
-    // Text has already been initialized once.
-    return;
+    /**
+     * Editable fields usually show some sort of UI indicating they are
+     * editable. This field should not.
+     * @type {boolean}
+     */
+    this.EDITABLE = false;
+
+    if (opt_value === Field.SKIP_SETUP) return;
+    if (opt_config) {
+      this.configure_(opt_config);
+    } else {
+      this.class_ = opt_class || null;
+    }
+    this.setValue(opt_value);
   }
-  this.sourceBlock_ = block;
 
-  // Build the DOM.
-  this.textElement_ = Blockly.createSvgElement('text',
-      {'class': 'blocklyText', 'y': this.size_.height - 5}, null);
-  if (this.class_) {
-    Blockly.addClass_(this.textElement_, this.class_);
+  /**
+   * @override
+   */
+  configure_(config) {
+    super.configure_(config);
+    this.class_ = config['class'];
   }
-  if (!this.visible_) {
-    this.textElement_.style.display = 'none';
+
+  /**
+   * Create block UI for this label.
+   * @package
+   */
+  initView() {
+    this.createTextElement_();
+    if (this.class_) {
+      dom.addClass(
+          /** @type {!SVGTextElement} */ (this.textElement_), this.class_);
+    }
   }
-  block.getSvgRoot().appendChild(this.textElement_);
 
-  // Configure the field to be transparent with respect to tooltips.
-  this.textElement_.tooltip = this.sourceBlock_;
-  Blockly.Tooltip.bindMouseEvents(this.textElement_);
-  // Force a render.
-  this.updateTextNode_();
-};
+  /**
+   * Ensure that the input value casts to a valid string.
+   * @param {*=} opt_newValue The input value.
+   * @return {?string} A valid string, or null if invalid.
+   * @protected
+   */
+  doClassValidation_(opt_newValue) {
+    if (opt_newValue === null || opt_newValue === undefined) {
+      return null;
+    }
+    return String(opt_newValue);
+  }
+
+  /**
+   * Set the CSS class applied to the field's textElement_.
+   * @param {?string} cssClass The new CSS class name, or null to remove.
+   */
+  setClass(cssClass) {
+    if (this.textElement_) {
+      // This check isn't necessary, but it's faster than letting removeClass
+      // figure it out.
+      if (this.class_) {
+        dom.removeClass(this.textElement_, this.class_);
+      }
+      if (cssClass) {
+        dom.addClass(this.textElement_, cssClass);
+      }
+    }
+    this.class_ = cssClass;
+  }
+
+  /**
+   * Construct a FieldLabel from a JSON arg object,
+   * dereferencing any string table references.
+   * @param {!Object} options A JSON object with options (text, and class).
+   * @return {!FieldLabel} The new field instance.
+   * @package
+   * @nocollapse
+   */
+  static fromJson(options) {
+    const text = parsing.replaceMessageReferences(options['text']);
+    // `this` might be a subclass of FieldLabel if that class doesn't override
+    // the static fromJson method.
+    return new this(text, undefined, options);
+  }
+}
 
 /**
- * Dispose of all DOM objects belonging to this text.
+ * The default value for this field.
+ * @type {*}
+ * @protected
  */
-Blockly.FieldLabel.prototype.dispose = function() {
-  goog.dom.removeNode(this.textElement_);
-  this.textElement_ = null;
-};
+FieldLabel.prototype.DEFAULT_VALUE = '';
 
-/**
- * Gets the group element for this field.
- * Used for measuring the size and for positioning.
- * @return {!Element} The group element.
- */
-Blockly.FieldLabel.prototype.getSvgRoot = function() {
-  return /** @type {!Element} */ (this.textElement_);
-};
+fieldRegistry.register('field_label', FieldLabel);
 
-/**
- * Change the tooltip text for this field.
- * @param {string|!Element} newTip Text for tooltip or a parent element to
- *     link to for its tooltip.
- */
-Blockly.FieldLabel.prototype.setTooltip = function(newTip) {
-  this.textElement_.tooltip = newTip;
-};
+exports.FieldLabel = FieldLabel;

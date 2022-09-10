@@ -1,121 +1,124 @@
 /**
  * @license
- * Visual Blocks Language
- *
- * Copyright 2015 Google Inc.
- * https://developers.google.com/blockly/
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2015 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
  * @fileoverview Generating PHP for procedure blocks.
- * @author daarond@gmail.com (Daaron Dwyer)
  */
 'use strict';
 
-goog.provide('Blockly.PHP.procedures');
+goog.module('Blockly.PHP.procedures');
 
-goog.require('Blockly.PHP');
+const PHP = goog.require('Blockly.PHP');
+const Variables = goog.require('Blockly.Variables');
+const {NameType} = goog.require('Blockly.Names');
 
-Blockly.PHP['procedures_defreturn'] = function(block) {
+
+PHP['procedures_defreturn'] = function(block) {
   // Define a procedure with a return value.
-  // First, add a 'global' statement for every variable that is assigned.
-  var globals = Blockly.Variables.allVariables(block);
-  for (var i = globals.length - 1; i >= 0; i--) {
-      var varName = globals[i];
-      if (block.arguments_.indexOf(varName) == -1) {
-          globals[i] = Blockly.PHP.variableDB_.getName(varName,
-              Blockly.Variables.NAME_TYPE);
-      } else {
-          // This variable is actually a parameter name.  Do not include it in
-          // the list of globals, thus allowing it be of local scope.
-          globals.splice(i, 1);
-      }
+  // First, add a 'global' statement for every variable that is not shadowed by
+  // a local parameter.
+  const globals = [];
+  const workspace = block.workspace;
+  const usedVariables = Variables.allUsedVarModels(workspace) || [];
+  for (let i = 0, variable; variable = usedVariables[i]; i++) {
+    const varName = variable.name;
+    if (block.getVars().indexOf(varName) === -1) {
+      globals.push(PHP.nameDB_.getName(varName, NameType.VARIABLE));
+    }
   }
-  globals = globals.length ? '  global ' + globals.join(', ') + ';\n' : '';
+  // Add developer variables.
+  const devVarList = Variables.allDeveloperVariables(workspace);
+  for (let i = 0; i < devVarList.length; i++) {
+    globals.push(
+        PHP.nameDB_.getName(devVarList[i], NameType.DEVELOPER_VARIABLE));
+  }
+  const globalStr =
+      globals.length ? PHP.INDENT + 'global ' + globals.join(', ') + ';\n' : '';
 
-  var funcName = Blockly.PHP.variableDB_.getName(
-      block.getFieldValue('NAME'), Blockly.Procedures.NAME_TYPE);
-  var branch = Blockly.PHP.statementToCode(block, 'STACK');
-  if (Blockly.PHP.STATEMENT_PREFIX) {
-    branch = Blockly.PHP.prefixLines(
-        Blockly.PHP.STATEMENT_PREFIX.replace(/%1/g,
-        '\'' + block.id + '\''), Blockly.PHP.INDENT) + branch;
+  const funcName =
+      PHP.nameDB_.getName(block.getFieldValue('NAME'), NameType.PROCEDURE);
+  let xfix1 = '';
+  if (PHP.STATEMENT_PREFIX) {
+    xfix1 += PHP.injectId(PHP.STATEMENT_PREFIX, block);
   }
-  if (Blockly.PHP.INFINITE_LOOP_TRAP) {
-    branch = Blockly.PHP.INFINITE_LOOP_TRAP.replace(/%1/g,
-        '\'' + block.id + '\'') + branch;
+  if (PHP.STATEMENT_SUFFIX) {
+    xfix1 += PHP.injectId(PHP.STATEMENT_SUFFIX, block);
   }
-  var returnValue = Blockly.PHP.valueToCode(block, 'RETURN',
-      Blockly.PHP.ORDER_NONE) || '';
+  if (xfix1) {
+    xfix1 = PHP.prefixLines(xfix1, PHP.INDENT);
+  }
+  let loopTrap = '';
+  if (PHP.INFINITE_LOOP_TRAP) {
+    loopTrap = PHP.prefixLines(
+        PHP.injectId(PHP.INFINITE_LOOP_TRAP, block), PHP.INDENT);
+  }
+  const branch = PHP.statementToCode(block, 'STACK');
+  let returnValue = PHP.valueToCode(block, 'RETURN', PHP.ORDER_NONE) || '';
+  let xfix2 = '';
+  if (branch && returnValue) {
+    // After executing the function body, revisit this block for the return.
+    xfix2 = xfix1;
+  }
   if (returnValue) {
-    returnValue = '  return ' + returnValue + ';\n';
+    returnValue = PHP.INDENT + 'return ' + returnValue + ';\n';
   }
-  var args = [];
-  for (var x = 0; x < block.arguments_.length; x++) {
-    args[x] = Blockly.PHP.variableDB_.getName(block.arguments_[x],
-        Blockly.Variables.NAME_TYPE);
+  const args = [];
+  const variables = block.getVars();
+  for (let i = 0; i < variables.length; i++) {
+    args[i] = PHP.nameDB_.getName(variables[i], NameType.VARIABLE);
   }
-  var code = 'function ' + funcName + '(' + args.join(', ') + ') {\n' +
-      globals + branch + returnValue + '}';
-  code = Blockly.PHP.scrub_(block, code);
-  Blockly.PHP.definitions_[funcName] = code;
+  let code = 'function ' + funcName + '(' + args.join(', ') + ') {\n' +
+      globalStr + xfix1 + loopTrap + branch + xfix2 + returnValue + '}';
+  code = PHP.scrub_(block, code);
+  // Add % so as not to collide with helper functions in definitions list.
+  PHP.definitions_['%' + funcName] = code;
   return null;
 };
 
 // Defining a procedure without a return value uses the same generator as
 // a procedure with a return value.
-Blockly.PHP['procedures_defnoreturn'] =
-    Blockly.PHP['procedures_defreturn'];
+PHP['procedures_defnoreturn'] = PHP['procedures_defreturn'];
 
-Blockly.PHP['procedures_callreturn'] = function(block) {
+PHP['procedures_callreturn'] = function(block) {
   // Call a procedure with a return value.
-  var funcName = Blockly.PHP.variableDB_.getName(
-      block.getFieldValue('NAME'), Blockly.Procedures.NAME_TYPE);
-  var args = [];
-  for (var x = 0; x < block.arguments_.length; x++) {
-    args[x] = Blockly.PHP.valueToCode(block, 'ARG' + x,
-        Blockly.PHP.ORDER_COMMA) || 'null';
+  const funcName =
+      PHP.nameDB_.getName(block.getFieldValue('NAME'), NameType.PROCEDURE);
+  const args = [];
+  const variables = block.getVars();
+  for (let i = 0; i < variables.length; i++) {
+    args[i] = PHP.valueToCode(block, 'ARG' + i, PHP.ORDER_NONE) || 'null';
   }
-  var code = funcName + '(' + args.join(', ') + ')';
-  return [code, Blockly.PHP.ORDER_FUNCTION_CALL];
+  const code = funcName + '(' + args.join(', ') + ')';
+  return [code, PHP.ORDER_FUNCTION_CALL];
 };
 
-Blockly.PHP['procedures_callnoreturn'] = function(block) {
+PHP['procedures_callnoreturn'] = function(block) {
   // Call a procedure with no return value.
-  var funcName = Blockly.PHP.variableDB_.getName(
-      block.getFieldValue('NAME'), Blockly.Procedures.NAME_TYPE);
-  var args = [];
-  for (var x = 0; x < block.arguments_.length; x++) {
-    args[x] = Blockly.PHP.valueToCode(block, 'ARG' + x,
-        Blockly.PHP.ORDER_COMMA) || 'null';
-  }
-  var code = funcName + '(' + args.join(', ') + ');\n';
-  return code;
+  // Generated code is for a function call as a statement is the same as a
+  // function call as a value, with the addition of line ending.
+  const tuple = PHP['procedures_callreturn'](block);
+  return tuple[0] + ';\n';
 };
 
-Blockly.PHP['procedures_ifreturn'] = function(block) {
+PHP['procedures_ifreturn'] = function(block) {
   // Conditionally return value from a procedure.
-  var condition = Blockly.PHP.valueToCode(block, 'CONDITION',
-      Blockly.PHP.ORDER_NONE) || 'false';
-  var code = 'if (' + condition + ') {\n';
+  const condition =
+      PHP.valueToCode(block, 'CONDITION', PHP.ORDER_NONE) || 'false';
+  let code = 'if (' + condition + ') {\n';
+  if (PHP.STATEMENT_SUFFIX) {
+    // Inject any statement suffix here since the regular one at the end
+    // will not get executed if the return is triggered.
+    code +=
+        PHP.prefixLines(PHP.injectId(PHP.STATEMENT_SUFFIX, block), PHP.INDENT);
+  }
   if (block.hasReturnValue_) {
-    var value = Blockly.PHP.valueToCode(block, 'VALUE',
-        Blockly.PHP.ORDER_NONE) || 'null';
-    code += '  return ' + value + ';\n';
+    const value = PHP.valueToCode(block, 'VALUE', PHP.ORDER_NONE) || 'null';
+    code += PHP.INDENT + 'return ' + value + ';\n';
   } else {
-    code += '  return;\n';
+    code += PHP.INDENT + 'return;\n';
   }
   code += '}\n';
   return code;

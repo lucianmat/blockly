@@ -1,138 +1,208 @@
 /**
  * @license
- * Visual Blocks Language
- *
- * Copyright 2012 Google Inc.
- * https://developers.google.com/blockly/
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2012 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
  * @fileoverview Helper functions for generating Python for blocks.
- * @author fraser@google.com (Neil Fraser)
+ * @suppress {checkTypes|globalThis}
  */
 'use strict';
 
-goog.provide('Blockly.Python');
+goog.module('Blockly.Python');
+goog.module.declareLegacyNamespace();
 
-goog.require('Blockly.Generator');
+const stringUtils = goog.require('Blockly.utils.string');
+const Variables = goog.require('Blockly.Variables');
+const {Block} = goog.requireType('Blockly.Block');
+const {Generator} = goog.require('Blockly.Generator');
+const {inputTypes} = goog.require('Blockly.inputTypes');
+const {Names, NameType} = goog.require('Blockly.Names');
+const {Workspace} = goog.requireType('Blockly.Workspace');
 
 
 /**
  * Python code generator.
- * @type {!Blockly.Generator}
+ * @type {!Generator}
  */
-Blockly.Python = new Blockly.Generator('Python');
+const Python = new Generator('Python');
 
 /**
  * List of illegal variable names.
  * This is not intended to be a security feature.  Blockly is 100% client-side,
  * so bypassing this list is trivial.  This is intended to prevent users from
  * accidentally clobbering a built-in object or function.
- * @private
  */
-Blockly.Python.addReservedWords(
+Python.addReservedWords(
     // import keyword
-    // print ','.join(keyword.kwlist)
-    // http://docs.python.org/reference/lexical_analysis.html#keywords
-    'and,as,assert,break,class,continue,def,del,elif,else,except,exec,finally,for,from,global,if,import,in,is,lambda,not,or,pass,print,raise,return,try,while,with,yield,' +
-    //http://docs.python.org/library/constants.html
-    'True,False,None,NotImplemented,Ellipsis,__debug__,quit,exit,copyright,license,credits,' +
-    // http://docs.python.org/library/functions.html
-    'abs,divmod,input,open,staticmethod,all,enumerate,int,ord,str,any,eval,isinstance,pow,sum,basestring,execfile,issubclass,print,super,bin,file,iter,property,tuple,bool,filter,len,range,type,bytearray,float,list,raw_input,unichr,callable,format,locals,reduce,unicode,chr,frozenset,long,reload,vars,classmethod,getattr,map,repr,xrange,cmp,globals,max,reversed,zip,compile,hasattr,memoryview,round,__import__,complex,hash,min,set,apply,delattr,help,next,setattr,buffer,dict,hex,object,slice,coerce,dir,id,oct,sorted,intern');
+    // print(','.join(sorted(keyword.kwlist)))
+    // https://docs.python.org/3/reference/lexical_analysis.html#keywords
+    // https://docs.python.org/2/reference/lexical_analysis.html#keywords
+    'False,None,True,and,as,assert,break,class,continue,def,del,elif,else,' +
+    'except,exec,finally,for,from,global,if,import,in,is,lambda,nonlocal,not,' +
+    'or,pass,print,raise,return,try,while,with,yield,' +
+    // https://docs.python.org/3/library/constants.html
+    // https://docs.python.org/2/library/constants.html
+    'NotImplemented,Ellipsis,__debug__,quit,exit,copyright,license,credits,' +
+    // >>> print(','.join(sorted(dir(__builtins__))))
+    // https://docs.python.org/3/library/functions.html
+    // https://docs.python.org/2/library/functions.html
+    'ArithmeticError,AssertionError,AttributeError,BaseException,' +
+    'BlockingIOError,BrokenPipeError,BufferError,BytesWarning,' +
+    'ChildProcessError,ConnectionAbortedError,ConnectionError,' +
+    'ConnectionRefusedError,ConnectionResetError,DeprecationWarning,EOFError,' +
+    'Ellipsis,EnvironmentError,Exception,FileExistsError,FileNotFoundError,' +
+    'FloatingPointError,FutureWarning,GeneratorExit,IOError,ImportError,' +
+    'ImportWarning,IndentationError,IndexError,InterruptedError,' +
+    'IsADirectoryError,KeyError,KeyboardInterrupt,LookupError,MemoryError,' +
+    'ModuleNotFoundError,NameError,NotADirectoryError,NotImplemented,' +
+    'NotImplementedError,OSError,OverflowError,PendingDeprecationWarning,' +
+    'PermissionError,ProcessLookupError,RecursionError,ReferenceError,' +
+    'ResourceWarning,RuntimeError,RuntimeWarning,StandardError,' +
+    'StopAsyncIteration,StopIteration,SyntaxError,SyntaxWarning,SystemError,' +
+    'SystemExit,TabError,TimeoutError,TypeError,UnboundLocalError,' +
+    'UnicodeDecodeError,UnicodeEncodeError,UnicodeError,' +
+    'UnicodeTranslateError,UnicodeWarning,UserWarning,ValueError,Warning,' +
+    'ZeroDivisionError,_,__build_class__,__debug__,__doc__,__import__,' +
+    '__loader__,__name__,__package__,__spec__,abs,all,any,apply,ascii,' +
+    'basestring,bin,bool,buffer,bytearray,bytes,callable,chr,classmethod,cmp,' +
+    'coerce,compile,complex,copyright,credits,delattr,dict,dir,divmod,' +
+    'enumerate,eval,exec,execfile,exit,file,filter,float,format,frozenset,' +
+    'getattr,globals,hasattr,hash,help,hex,id,input,int,intern,isinstance,' +
+    'issubclass,iter,len,license,list,locals,long,map,max,memoryview,min,' +
+    'next,object,oct,open,ord,pow,print,property,quit,range,raw_input,reduce,' +
+    'reload,repr,reversed,round,set,setattr,slice,sorted,staticmethod,str,' +
+    'sum,super,tuple,type,unichr,unicode,vars,xrange,zip');
 
 /**
  * Order of operation ENUMs.
  * http://docs.python.org/reference/expressions.html#summary
  */
-Blockly.Python.ORDER_ATOMIC = 0;            // 0 "" ...
-Blockly.Python.ORDER_COLLECTION = 1;        // tuples, lists, dictionaries
-Blockly.Python.ORDER_STRING_CONVERSION = 1; // `expression...`
-Blockly.Python.ORDER_MEMBER = 2;            // . []
-Blockly.Python.ORDER_FUNCTION_CALL = 2;     // ()
-Blockly.Python.ORDER_EXPONENTIATION = 3;    // **
-Blockly.Python.ORDER_UNARY_SIGN = 4;        // + -
-Blockly.Python.ORDER_BITWISE_NOT = 4;       // ~
-Blockly.Python.ORDER_MULTIPLICATIVE = 5;    // * / // %
-Blockly.Python.ORDER_ADDITIVE = 6;          // + -
-Blockly.Python.ORDER_BITWISE_SHIFT = 7;     // << >>
-Blockly.Python.ORDER_BITWISE_AND = 8;       // &
-Blockly.Python.ORDER_BITWISE_XOR = 9;       // ^
-Blockly.Python.ORDER_BITWISE_OR = 10;       // |
-Blockly.Python.ORDER_RELATIONAL = 11;       // in, not in, is, is not,
-                                            //     <, <=, >, >=, <>, !=, ==
-Blockly.Python.ORDER_LOGICAL_NOT = 12;      // not
-Blockly.Python.ORDER_LOGICAL_AND = 13;      // and
-Blockly.Python.ORDER_LOGICAL_OR = 14;       // or
-Blockly.Python.ORDER_CONDITIONAL = 15;      // if else
-Blockly.Python.ORDER_LAMBDA = 16;           // lambda
-Blockly.Python.ORDER_NONE = 99;             // (...)
+Python.ORDER_ATOMIC = 0;             // 0 "" ...
+Python.ORDER_COLLECTION = 1;         // tuples, lists, dictionaries
+Python.ORDER_STRING_CONVERSION = 1;  // `expression...`
+Python.ORDER_MEMBER = 2.1;           // . []
+Python.ORDER_FUNCTION_CALL = 2.2;    // ()
+Python.ORDER_EXPONENTIATION = 3;     // **
+Python.ORDER_UNARY_SIGN = 4;         // + -
+Python.ORDER_BITWISE_NOT = 4;        // ~
+Python.ORDER_MULTIPLICATIVE = 5;     // * / // %
+Python.ORDER_ADDITIVE = 6;           // + -
+Python.ORDER_BITWISE_SHIFT = 7;      // << >>
+Python.ORDER_BITWISE_AND = 8;        // &
+Python.ORDER_BITWISE_XOR = 9;        // ^
+Python.ORDER_BITWISE_OR = 10;        // |
+Python.ORDER_RELATIONAL = 11;        // in, not in, is, is not,
+                                     //     <, <=, >, >=, <>, !=, ==
+Python.ORDER_LOGICAL_NOT = 12;       // not
+Python.ORDER_LOGICAL_AND = 13;       // and
+Python.ORDER_LOGICAL_OR = 14;        // or
+Python.ORDER_CONDITIONAL = 15;       // if else
+Python.ORDER_LAMBDA = 16;            // lambda
+Python.ORDER_NONE = 99;              // (...)
 
 /**
- * Empty loops or conditionals are not allowed in Python.
+ * List of outer-inner pairings that do NOT require parentheses.
+ * @type {!Array<!Array<number>>}
  */
-Blockly.Python.PASS = '  pass\n';
+Python.ORDER_OVERRIDES = [
+  // (foo()).bar -> foo().bar
+  // (foo())[0] -> foo()[0]
+  [Python.ORDER_FUNCTION_CALL, Python.ORDER_MEMBER],
+  // (foo())() -> foo()()
+  [Python.ORDER_FUNCTION_CALL, Python.ORDER_FUNCTION_CALL],
+  // (foo.bar).baz -> foo.bar.baz
+  // (foo.bar)[0] -> foo.bar[0]
+  // (foo[0]).bar -> foo[0].bar
+  // (foo[0])[1] -> foo[0][1]
+  [Python.ORDER_MEMBER, Python.ORDER_MEMBER],
+  // (foo.bar)() -> foo.bar()
+  // (foo[0])() -> foo[0]()
+  [Python.ORDER_MEMBER, Python.ORDER_FUNCTION_CALL],
+
+  // not (not foo) -> not not foo
+  [Python.ORDER_LOGICAL_NOT, Python.ORDER_LOGICAL_NOT],
+  // a and (b and c) -> a and b and c
+  [Python.ORDER_LOGICAL_AND, Python.ORDER_LOGICAL_AND],
+  // a or (b or c) -> a or b or c
+  [Python.ORDER_LOGICAL_OR, Python.ORDER_LOGICAL_OR]
+];
+
+/**
+ * Whether the init method has been called.
+ * @type {?boolean}
+ */
+Python.isInitialized = false;
 
 /**
  * Initialise the database of variable names.
- * @param {!Blockly.Workspace} workspace Workspace to generate code from.
+ * @param {!Workspace} workspace Workspace to generate code from.
+ * @this {Generator}
  */
-Blockly.Python.init = function(workspace) {
-  // Create a dictionary of definitions to be printed before the code.
-  Blockly.Python.definitions_ = Object.create(null);
-  // Create a dictionary mapping desired function names in definitions_
-  // to actual function names (to avoid collisions with user functions).
-  Blockly.Python.functionNames_ = Object.create(null);
+Python.init = function(workspace) {
+  // Call Blockly.Generator's init.
+  Object.getPrototypeOf(this).init.call(this);
 
-  if (!Blockly.Python.variableDB_) {
-    Blockly.Python.variableDB_ =
-        new Blockly.Names(Blockly.Python.RESERVED_WORDS_);
+  /**
+   * Empty loops or conditionals are not allowed in Python.
+   */
+  this.PASS = this.INDENT + 'pass\n';
+
+  if (!this.nameDB_) {
+    this.nameDB_ = new Names(this.RESERVED_WORDS_);
   } else {
-    Blockly.Python.variableDB_.reset();
+    this.nameDB_.reset();
   }
 
-  var defvars = [];
-  var variables = Blockly.Variables.allVariables(workspace);
-  for (var i = 0; i < variables.length; i++) {
-    defvars[i] = Blockly.Python.variableDB_.getName(variables[i],
-        Blockly.Variables.NAME_TYPE) + ' = None';
+  this.nameDB_.setVariableMap(workspace.getVariableMap());
+  this.nameDB_.populateVariables(workspace);
+  this.nameDB_.populateProcedures(workspace);
+
+  const defvars = [];
+  // Add developer variables (not created or named by the user).
+  const devVarList = Variables.allDeveloperVariables(workspace);
+  for (let i = 0; i < devVarList.length; i++) {
+    defvars.push(
+        this.nameDB_.getName(devVarList[i], Names.DEVELOPER_VARIABLE_TYPE) +
+        ' = None');
   }
-  Blockly.Python.definitions_['variables'] = defvars.join('\n');
+
+  // Add user variables, but only ones that are being used.
+  const variables = Variables.allUsedVarModels(workspace);
+  for (let i = 0; i < variables.length; i++) {
+    defvars.push(
+        this.nameDB_.getName(variables[i].getId(), NameType.VARIABLE) +
+        ' = None');
+  }
+
+  this.definitions_['variables'] = defvars.join('\n');
+  this.isInitialized = true;
 };
 
 /**
- * Prepend the generated code with the variable definitions.
+ * Prepend the generated code with import statements and variable definitions.
  * @param {string} code Generated code.
  * @return {string} Completed code.
  */
-Blockly.Python.finish = function(code) {
+Python.finish = function(code) {
   // Convert the definitions dictionary into a list.
-  var imports = [];
-  var definitions = [];
-  for (var name in Blockly.Python.definitions_) {
-    var def = Blockly.Python.definitions_[name];
+  const imports = [];
+  const definitions = [];
+  for (let name in this.definitions_) {
+    const def = this.definitions_[name];
     if (def.match(/^(from\s+\S+\s+)?import\s+\S+/)) {
       imports.push(def);
     } else {
       definitions.push(def);
     }
   }
-  // Clean up temporary data.
-  delete Blockly.Python.definitions_;
-  delete Blockly.Python.functionNames_;
-  Blockly.Python.variableDB_.reset();
-  var allDefs = imports.join('\n') + '\n\n' + definitions.join('\n\n');
+  // Call Blockly.Generator's finish.
+  code = Object.getPrototypeOf(this).finish.call(this, code);
+  this.isInitialized = false;
+
+  this.nameDB_.reset();
+  const allDefs = imports.join('\n') + '\n\n' + definitions.join('\n\n');
   return allDefs.replace(/\n\n+/g, '\n\n').replace(/\n*$/, '\n\n\n') + code;
 };
 
@@ -142,7 +212,7 @@ Blockly.Python.finish = function(code) {
  * @param {string} line Line of generated code.
  * @return {string} Legal line of code.
  */
-Blockly.Python.scrubNakedValue = function(line) {
+Python.scrubNakedValue = function(line) {
   return line + '\n';
 };
 
@@ -150,50 +220,115 @@ Blockly.Python.scrubNakedValue = function(line) {
  * Encode a string as a properly escaped Python string, complete with quotes.
  * @param {string} string Text to encode.
  * @return {string} Python string.
- * @private
+ * @protected
  */
-Blockly.Python.quote_ = function(string) {
-  // TODO: This is a quick hack.  Replace with goog.string.quote
-  string = string.replace(/\\/g, '\\\\')
-                 .replace(/\n/g, '\\\n')
-                 .replace(/\%/g, '\\%')
-                 .replace(/'/g, '\\\'');
-  return '\'' + string + '\'';
+Python.quote_ = function(string) {
+  // Can't use goog.string.quote since % must also be escaped.
+  string = string.replace(/\\/g, '\\\\').replace(/\n/g, '\\\n');
+
+  // Follow the CPython behaviour of repr() for a non-byte string.
+  let quote = '\'';
+  if (string.indexOf('\'') !== -1) {
+    if (string.indexOf('"') === -1) {
+      quote = '"';
+    } else {
+      string = string.replace(/'/g, '\\\'');
+    }
+  }
+  return quote + string + quote;
+};
+
+/**
+ * Encode a string as a properly escaped multiline Python string, complete
+ * with quotes.
+ * @param {string} string Text to encode.
+ * @return {string} Python string.
+ * @protected
+ */
+Python.multiline_quote_ = function(string) {
+  const lines = string.split(/\n/g).map(this.quote_);
+  // Join with the following, plus a newline:
+  // + '\n' +
+  return lines.join(' + \'\\n\' + \n');
 };
 
 /**
  * Common tasks for generating Python from blocks.
  * Handles comments for the specified block and any connected value blocks.
  * Calls any statements following this block.
- * @param {!Blockly.Block} block The current block.
+ * @param {!Block} block The current block.
  * @param {string} code The Python code created for this block.
+ * @param {boolean=} opt_thisOnly True to generate code for only this statement.
  * @return {string} Python code with comments and subsequent blocks added.
- * @private
+ * @protected
  */
-Blockly.Python.scrub_ = function(block, code) {
-  var commentCode = '';
+Python.scrub_ = function(block, code, opt_thisOnly) {
+  let commentCode = '';
   // Only collect comments for blocks that aren't inline.
   if (!block.outputConnection || !block.outputConnection.targetConnection) {
     // Collect comment for this block.
-    var comment = block.getCommentText();
+    let comment = block.getCommentText();
     if (comment) {
-      commentCode += Blockly.Python.prefixLines(comment, '# ') + '\n';
+      comment = stringUtils.wrap(comment, this.COMMENT_WRAP - 3);
+      commentCode += this.prefixLines(comment + '\n', '# ');
     }
     // Collect comments for all value arguments.
     // Don't collect comments for nested statements.
-    for (var x = 0; x < block.inputList.length; x++) {
-      if (block.inputList[x].type == Blockly.INPUT_VALUE) {
-        var childBlock = block.inputList[x].connection.targetBlock();
+    for (let i = 0; i < block.inputList.length; i++) {
+      if (block.inputList[i].type === inputTypes.VALUE) {
+        const childBlock = block.inputList[i].connection.targetBlock();
         if (childBlock) {
-          var comment = Blockly.Python.allNestedComments(childBlock);
+          comment = this.allNestedComments(childBlock);
           if (comment) {
-            commentCode += Blockly.Python.prefixLines(comment, '# ');
+            commentCode += this.prefixLines(comment, '# ');
           }
         }
       }
     }
   }
-  var nextBlock = block.nextConnection && block.nextConnection.targetBlock();
-  var nextCode = Blockly.Python.blockToCode(nextBlock);
+  const nextBlock = block.nextConnection && block.nextConnection.targetBlock();
+  const nextCode = opt_thisOnly ? '' : this.blockToCode(nextBlock);
   return commentCode + code + nextCode;
 };
+
+/**
+ * Gets a property and adjusts the value, taking into account indexing.
+ * If a static int, casts to an integer, otherwise returns a code string.
+ * @param {!Block} block The block.
+ * @param {string} atId The property ID of the element to get.
+ * @param {number=} opt_delta Value to add.
+ * @param {boolean=} opt_negate Whether to negate the value.
+ * @return {string|number}
+ */
+Python.getAdjustedInt = function(block, atId, opt_delta, opt_negate) {
+  let delta = opt_delta || 0;
+  if (block.workspace.options.oneBasedIndex) {
+    delta--;
+  }
+  const defaultAtIndex = block.workspace.options.oneBasedIndex ? '1' : '0';
+  const atOrder = delta ? this.ORDER_ADDITIVE : this.ORDER_NONE;
+  let at = this.valueToCode(block, atId, atOrder) || defaultAtIndex;
+
+  if (stringUtils.isNumber(at)) {
+    // If the index is a naked number, adjust it right now.
+    at = parseInt(at, 10) + delta;
+    if (opt_negate) {
+      at = -at;
+    }
+  } else {
+    // If the index is dynamic, adjust it in code.
+    if (delta > 0) {
+      at = 'int(' + at + ' + ' + delta + ')';
+    } else if (delta < 0) {
+      at = 'int(' + at + ' - ' + -delta + ')';
+    } else {
+      at = 'int(' + at + ')';
+    }
+    if (opt_negate) {
+      at = '-' + at;
+    }
+  }
+  return at;
+};
+
+exports = Python;

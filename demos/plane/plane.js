@@ -1,25 +1,11 @@
 /**
- * Blockly Demos: Plane Seat Calculator
- *
- * Copyright 2012 Google Inc.
- * https://developers.google.com/blockly/
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * @license
+ * Copyright 2012 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 /**
  * @fileoverview JavaScript for Blockly's Plane Seat Calculator demo.
- * @author fraser@google.com (Neil Fraser)
  */
 'use strict';
 
@@ -65,7 +51,7 @@ Plane.LANGUAGE_NAME = {
   'tr': 'Türkçe',
   'uk': 'Українська',
   'vi': 'Tiếng Việt',
-  'zh-hans': '簡體中文',
+  'zh-hans': '简体中文',
   'zh-hant': '正體中文'
 };
 
@@ -124,7 +110,7 @@ Plane.getLang = function() {
  * @return {boolean} True if RTL, false if LTR.
  */
 Plane.isRtl = function() {
-  return Plane.LANGUAGE_RTL.indexOf(Plane.LANG) != -1;
+  return Plane.LANGUAGE_RTL.indexOf(Plane.LANG) !== -1;
 };
 
 /**
@@ -143,12 +129,13 @@ Plane.loadBlocks = function(defaultXml) {
     // Language switching stores the blocks during the reload.
     delete window.sessionStorage.loadOnceBlocks;
     var xml = Blockly.Xml.textToDom(loadOnce);
-    Blockly.Xml.domToWorkspace(Plane.workspace, xml);
+    Blockly.Xml.domToWorkspace(xml, Plane.workspace);
   } else if (defaultXml) {
     // Load the editor with default starting blocks.
     var xml = Blockly.Xml.textToDom(defaultXml);
-    Blockly.Xml.domToWorkspace(Plane.workspace, xml);
+    Blockly.Xml.domToWorkspace(xml, Plane.workspace);
   }
+  Plane.workspace.clearUndo();
 };
 
 /**
@@ -159,7 +146,7 @@ Plane.changeLanguage = function() {
   // This should be skipped for the index page, which has no blocks and does
   // not load Blockly.
   // MSIE 11 does not support sessionStorage on file:// URLs.
-  if (typeof Blockly != 'undefined' && window.sessionStorage) {
+  if (typeof Blockly !== 'undefined' && window.sessionStorage) {
     var xml = Blockly.Xml.workspaceToDom(Plane.workspace);
     var text = Blockly.Xml.domToText(xml);
     window.sessionStorage.loadOnceBlocks = text;
@@ -212,12 +199,20 @@ Plane.rows1st = 0;
 Plane.rows2nd = 0;
 
 /**
- * Redraw the rows when the slider has moved.
+ * Redraw the rows and update blocks when the slider has moved.
  * @param {number} value New slider position.
  */
 Plane.sliderChange = function(value) {
   var newRows = Math.round(value * 410 / 20);
   Plane.redraw(newRows);
+
+  function updateBlocks(blocks) {
+    for (var i = 0, block; block = blocks[i]; i++) {
+      block.customUpdate && block.customUpdate();
+    }
+  }
+  updateBlocks(Plane.workspace.getAllBlocks(false), true);
+  updateBlocks(Plane.workspace.flyout_.workspace_.getAllBlocks(false));
 };
 
 /**
@@ -268,13 +263,14 @@ Plane.init = function() {
        toolbox: document.getElementById('toolbox')});
 
   var defaultXml =
-      '<xml>' +
+      '<xml xmlns="https://developers.google.com/blockly/xml">' +
       '  <block type="plane_set_seats" deletable="false" x="70" y="70">' +
       '  </block>' +
       '</xml>';
   Plane.loadBlocks(defaultXml);
 
   Plane.workspace.addChangeListener(Plane.recalculate);
+  Plane.workspace.addChangeListener(Blockly.Events.disableOrphans);
 
   // Initialize the slider.
   var svg = document.getElementById('plane');
@@ -318,7 +314,7 @@ Plane.initLanguage = function() {
     var tuple = languages[i];
     var lang = tuple[tuple.length - 1];
     var option = new Option(tuple[0], lang);
-    if (lang == Plane.LANG) {
+    if (lang === Plane.LANG) {
       option.selected = true;
     }
     languageMenu.options.add(option);
@@ -335,7 +331,7 @@ Plane.recalculate = function() {
   var rootBlock = null;
   var blocks = Plane.workspace.getTopBlocks(false);
   for (var i = 0, block; block = blocks[i]; i++) {
-    if (block.type == 'plane_set_seats') {
+    if (block.type === 'plane_set_seats') {
       rootBlock = block;
     }
   }
@@ -350,16 +346,7 @@ Plane.recalculate = function() {
   Plane.setText('seatText',
       Plane.getMsg('Plane_seats').replace(
           '%1', isNaN(seats) ? '?' : seats));
-  Plane.setCorrect(isNaN(seats) ? null : (Plane.answer() == seats));
-
-  // Update blocks to show values.
-  function updateBlocks(blocks) {
-    for (var i = 0, block; block = blocks[i]; i++) {
-      block.customUpdate && block.customUpdate();
-    }
-  }
-  updateBlocks(Plane.workspace.getAllBlocks());
-  updateBlocks(Plane.workspace.flyout_.workspace_.getAllBlocks());
+  Plane.setCorrect(isNaN(seats) ? null : (Plane.answer() === seats));
 };
 
 /**
@@ -367,11 +354,11 @@ Plane.recalculate = function() {
  * @return {number} Number of seats.
  */
 Plane.answer = function() {
-  if (Plane.LEVEL == 1) {
+  if (Plane.LEVEL === 1) {
     return Plane.rows1st * 4;
-  } else if (Plane.LEVEL == 2) {
+  } else if (Plane.LEVEL === 2) {
     return 2 + (Plane.rows1st * 4);
-  } else if (Plane.LEVEL == 3) {
+  } else if (Plane.LEVEL === 3) {
     return 2 + (Plane.rows1st * 4) + (Plane.rows2nd * 5);
   }
   throw 'Unknown level.';
@@ -385,7 +372,7 @@ Plane.redraw = function(newRows) {
   var rows1st = Plane.rows1st;
   var rows2nd = Plane.rows2nd;
   var svg = document.getElementById('plane');
-  if (newRows != rows1st) {
+  if (newRows !== rows1st) {
     while (newRows < rows1st) {
       var row = document.getElementById('row1st' + rows1st);
       row.parentNode.removeChild(row);
@@ -394,7 +381,7 @@ Plane.redraw = function(newRows) {
     while (newRows > rows1st) {
       rows1st++;
       var row = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-      row.setAttribute('id', 'row1st' + rows1st);
+      row.id = 'row1st' + rows1st;
       // Row of 4 seats.
       row.setAttribute('x', (rows1st - 1) * 20);
       row.setAttributeNS('http://www.w3.org/1999/xlink',
@@ -402,7 +389,7 @@ Plane.redraw = function(newRows) {
       svg.appendChild(row);
     }
 
-    if (Plane.LEVEL == 3) {
+    if (Plane.LEVEL === 3) {
       newRows = Math.floor((21 - newRows) * 1.11);
       while (newRows < rows2nd) {
         var row = document.getElementById('row2nd' + rows2nd);
@@ -411,9 +398,8 @@ Plane.redraw = function(newRows) {
       }
       while (newRows > rows2nd) {
         rows2nd++;
-        var row = document.createElementNS('http://www.w3.org/2000/svg',
-                                                    'use');
-        row.setAttribute('id', 'row2nd' + rows2nd);
+        var row = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+        row.id = 'row2nd' + rows2nd;
         row.setAttribute('x', 400 - (rows2nd - 1) * 18);
         row.setAttributeNS('http://www.w3.org/1999/xlink',
             'xlink:href', '#row2nd');
